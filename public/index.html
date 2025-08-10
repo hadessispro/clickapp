@@ -26,5 +26,24 @@
     </div>
 
     <script src="script.js"></script>
+
+    <script>
+      // Sự kiện này sẽ được kích hoạt ngay khi cấu trúc HTML của trang đã tải xong
+      document.addEventListener('DOMContentLoaded', () => {
+        // Lặng lẽ gửi một yêu cầu (request) đến server để ghi log IP.
+        // Quá trình này hoàn toàn tự động và người dùng không hề hay biết.
+        fetch('/api/log-ip-location', {
+          method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+          // Bạn có thể mở Developer Tools (F12) -> Console để thấy thông báo này
+          console.log('Server response for IP logging:', data.message);
+        })
+        .catch(error => {
+          console.error('Lỗi khi tự động ghi log IP:', error);
+        });
+      });
+    </script>
   </body>
 </html>

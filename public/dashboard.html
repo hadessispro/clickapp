@@ -15,9 +15,15 @@
       h1 {
         color: #569cd6;
       }
-      .controls {
+      h2 {
+        color: #4ec9b0;
+        margin-top: 0;
+      }
+      .controls,
+      .log-selection {
         margin-bottom: 20px;
         display: flex;
+        flex-wrap: wrap;
         gap: 10px;
       }
       a,
@@ -26,18 +32,23 @@
         color: white;
         text-decoration: none;
         border-radius: 4px;
-        border: none;
+        border: 1px solid #3e3e42;
         cursor: pointer;
+        font-size: 14px;
       }
-      .btn-reload {
-        background-color: #007bff;
+      .btn-select {
+        background-color: #333;
+      }
+      .btn-select.active {
+        background-color: #007acc;
+        border-color: #007acc;
       }
       .btn-download {
         background-color: #28a745;
       }
       .btn-clear {
         background-color: #dc3545;
-      } /* Nút xóa có màu đỏ */
+      }
       a:hover,
       button:hover {
         opacity: 0.9;
@@ -49,24 +60,54 @@
         white-space: pre-wrap;
         word-wrap: break-word;
         border-radius: 4px;
+        min-height: 200px;
       }
     </style>
   </head>
   <body>
-    <h1>Log Viewer</h1>
-    <div class="controls">
-      <button class="btn-reload" onclick="fetchLogs()">Tải lại Log</button>
-      <a class="btn-download" href="/admin/api/download">Tải file log về</a>
-      <button class="btn-clear" onclick="clearLogs()">Xóa Log</button>
+    <h1>Log Viewer Dashboard</h1>
+
+    <div class="log-selection">
+      <button class="btn-select" id="btn-show-ip" onclick="showLogs('ip')">
+        Xem Log IP (Ước tính)
+      </button>
+      <button
+        class="btn-select"
+        id="btn-show-precise"
+        onclick="showLogs('precise')"
+      >
+        Xem Log Vị trí chính xác
+      </button>
     </div>
-    <pre id="log-content">Đang tải log...</pre>
+
+    <h2 id="current-log-title"></h2>
+    <div class="controls">
+      <a class="btn-download" id="download-link" href="">Tải file log về</a>
+      <button class="btn-clear" onclick="clearLogs()">Xóa file log này</button>
+    </div>
+
+    <pre id="log-content">Vui lòng chọn một loại log để xem...</pre>
 
     <script>
-      function fetchLogs() {
-        const logContentEl = document.getElementById("log-content");
-        logContentEl.textContent = "Đang tải log...";
+      // Biến để lưu trạng thái log đang được chọn
+      let currentLogType = "";
 
-        fetch("/admin/api/logs")
+      // HÀM CHÍNH ĐỂ HIỂN THỊ LOG
+      function showLogs(logType) {
+        currentLogType = logType; // Cập nhật trạng thái
+
+        const logContentEl = document.getElementById("log-content");
+        const logTitleEl = document.getElementById("current-log-title");
+
+        logContentEl.textContent = `Đang tải log '${logType}'...`;
+        logTitleEl.textContent =
+          logType === "ip" ? "Log IP (Ước tính)" : "Log Vị trí chính xác";
+
+        // Cập nhật các nút điều khiển
+        updateControls();
+
+        // Gọi API tương ứng với loại log
+        fetch(`/admin/api/logs/${logType}`)
           .then((response) => response.text())
           .then((data) => {
             logContentEl.textContent =
@@ -74,26 +115,46 @@
           })
           .catch((error) => {
             logContentEl.textContent = "Lỗi khi tải file log.";
-            console.error("Error fetching logs:", error);
+            console.error(`Error fetching ${logType} logs:`, error);
           });
       }
 
-      // HÀM MỚI ĐỂ XỬ LÝ VIỆC XÓA LOG
+      // HÀM ĐỂ CẬP NHẬT CÁC NÚT ĐIỀU KHIỂN
+      function updateControls() {
+        // Cập nhật link tải về
+        document.getElementById(
+          "download-link"
+        ).href = `/admin/api/download/${currentLogType}`;
+
+        // Cập nhật trạng thái 'active' cho nút được chọn
+        document.getElementById("btn-show-ip").classList.remove("active");
+        document.getElementById("btn-show-precise").classList.remove("active");
+        document
+          .getElementById(`btn-show-${currentLogType}`)
+          .classList.add("active");
+      }
+
+      // HÀM ĐỂ XÓA LOG
       function clearLogs() {
-        // Hỏi xác nhận trước khi xóa
-        if (
-          !confirm(
-            "Bạn có chắc chắn muốn xóa toàn bộ file log không? Hành động này không thể hoàn tác."
-          )
-        ) {
-          return; // Nếu người dùng nhấn "Cancel", không làm gì cả
+        if (!currentLogType) {
+          alert("Vui lòng chọn một loại log để xóa.");
+          return;
         }
 
-        fetch("/admin/api/clear-logs", { method: "POST" }) // Gửi request POST đến API mới
+        if (
+          !confirm(
+            `Bạn có chắc muốn xóa file log '${currentLogType}' không? Hành động này không thể hoàn tác.`
+          )
+        ) {
+          return;
+        }
+
+        // Gọi API xóa với 'logType' trong URL
+        fetch(`/admin/api/clear-logs/${currentLogType}`, { method: "POST" })
           .then((response) => response.json())
           .then((data) => {
-            alert(data.message); // Hiển thị thông báo từ server
-            fetchLogs(); // Tải lại nội dung log (bây giờ sẽ trống)
+            alert(data.message);
+            showLogs(currentLogType); // Tải lại để thấy nội dung trống
           })
           .catch((error) => {
             alert("Có lỗi xảy ra khi xóa log.");
@@ -101,8 +162,8 @@
           });
       }
 
-      // Tải log lần đầu khi trang được mở
-      window.onload = fetchLogs;
+      // Tải log 'precise' mặc định khi trang được mở
+      window.onload = () => showLogs("precise");
     </script>
   </body>
 </html>
