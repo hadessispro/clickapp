@@ -17,20 +17,30 @@
       }
       .controls {
         margin-bottom: 20px;
+        display: flex;
+        gap: 10px;
       }
       a,
       button {
         padding: 10px 15px;
-        background-color: #007bff;
         color: white;
         text-decoration: none;
         border-radius: 4px;
         border: none;
         cursor: pointer;
       }
+      .btn-reload {
+        background-color: #007bff;
+      }
+      .btn-download {
+        background-color: #28a745;
+      }
+      .btn-clear {
+        background-color: #dc3545;
+      } /* Nút xóa có màu đỏ */
       a:hover,
       button:hover {
-        background-color: #0056b3;
+        opacity: 0.9;
       }
       #log-content {
         background-color: #252526;
@@ -45,8 +55,9 @@
   <body>
     <h1>Log Viewer</h1>
     <div class="controls">
-      <button onclick="fetchLogs()">Tải lại Log</button>
-      <a href="/admin/api/download">Tải file log về</a>
+      <button class="btn-reload" onclick="fetchLogs()">Tải lại Log</button>
+      <a class="btn-download" href="/admin/api/download">Tải file log về</a>
+      <button class="btn-clear" onclick="clearLogs()">Xóa Log</button>
     </div>
     <pre id="log-content">Đang tải log...</pre>
 
@@ -64,6 +75,29 @@
           .catch((error) => {
             logContentEl.textContent = "Lỗi khi tải file log.";
             console.error("Error fetching logs:", error);
+          });
+      }
+
+      // HÀM MỚI ĐỂ XỬ LÝ VIỆC XÓA LOG
+      function clearLogs() {
+        // Hỏi xác nhận trước khi xóa
+        if (
+          !confirm(
+            "Bạn có chắc chắn muốn xóa toàn bộ file log không? Hành động này không thể hoàn tác."
+          )
+        ) {
+          return; // Nếu người dùng nhấn "Cancel", không làm gì cả
+        }
+
+        fetch("/admin/api/clear-logs", { method: "POST" }) // Gửi request POST đến API mới
+          .then((response) => response.json())
+          .then((data) => {
+            alert(data.message); // Hiển thị thông báo từ server
+            fetchLogs(); // Tải lại nội dung log (bây giờ sẽ trống)
+          })
+          .catch((error) => {
+            alert("Có lỗi xảy ra khi xóa log.");
+            console.error("Error clearing logs:", error);
           });
       }
 

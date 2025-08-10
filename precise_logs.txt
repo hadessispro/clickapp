@@ -1,6 +1,0 @@
-
-          [19:30:22 10/8/2025] User IP: ::1
-          Precise Coordinates: Latitude: 10.7879214, Longitude: 106.6851892
-          Detailed Address from Coords: D.C Tower, 111D, Đường Lý Chính Thắng, Phường Xuân Hòa, Thành phố Hồ Chí Minh, 70150, Việt Nam
-        
-
