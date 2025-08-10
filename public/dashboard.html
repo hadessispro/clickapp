@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Dashboard - View Logs</title>
+    <style>
+      body {
+        font-family: monospace;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        margin: 0;
+        padding: 20px;
+      }
+      h1 {
+        color: #569cd6;
+      }
+      .controls {
+        margin-bottom: 20px;
+      }
+      a,
+      button {
+        padding: 10px 15px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+      }
+      a:hover,
+      button:hover {
+        background-color: #0056b3;
+      }
+      #log-content {
+        background-color: #252526;
+        border: 1px solid #333;
+        padding: 15px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Log Viewer</h1>
+    <div class="controls">
+      <button onclick="fetchLogs()">Tải lại Log</button>
+      <a href="/admin/api/download">Tải file log về</a>
+    </div>
+    <pre id="log-content">Đang tải log...</pre>
+
+    <script>
+      function fetchLogs() {
+        const logContentEl = document.getElementById("log-content");
+        logContentEl.textContent = "Đang tải log...";
+
+        fetch("/admin/api/logs")
+          .then((response) => response.text())
+          .then((data) => {
+            logContentEl.textContent =
+              data || "File log trống hoặc không tồn tại.";
+          })
+          .catch((error) => {
+            logContentEl.textContent = "Lỗi khi tải file log.";
+            console.error("Error fetching logs:", error);
+          });
+      }
+
+      // Tải log lần đầu khi trang được mở
+      window.onload = fetchLogs;
+    </script>
+  </body>
+</html>

@@ -34,7 +34,6 @@ function successCallback(position) {
   const lon = position.coords.longitude;
 
   console.log(`Lấy vị trí thành công: Lat ${lat}, Lon ${lon}`);
-  alert(`Cảm ơn bạn đã cấp quyền! Vị trí của bạn là: ${lat}, ${lon}`);
 
   // Gửi tọa độ lên server để ghi log
   fetch("/api/log-precise-location", {
@@ -63,9 +62,6 @@ function errorCallback(error) {
   console.log(`Có lỗi xảy ra: ${error.message}`);
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      alert(
-        "Bạn đã từ chối cấp quyền vị trí. Chúng tôi không thể đề xuất các địa điểm gần bạn."
-      );
       break;
     case error.POSITION_UNAVAILABLE:
       alert("Không thể xác định được vị trí của bạn.");
