@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
-const ADMIN_PASSWORD = "your_super_secret_password"; // <-- THAY ĐỔI MẬT KHẨU NÀY
+const ADMIN_PASSWORD = "1234567890"; // <-- THAY ĐỔI MẬT KHẨU NÀY
 
 // --- Middlewares ---
 app.use(express.json());
