@@ -1,0 +1,9 @@
+.vercel
+# Bỏ qua thư mục chứa các thư viện đã cài đặt từ npm
+node_modules
+
+# Bỏ qua file log do server tạo ra
+logs.txt
+
+# Bỏ qua các file chứa biến môi trường (nếu có)
+.env
