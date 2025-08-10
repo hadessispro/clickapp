@@ -1,0 +1,46 @@
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+  background-color: #121212;
+  font-family: Arial, sans-serif;
+  color: white;
+}
+
+.location-prompt-container {
+  text-align: center;
+}
+
+.fake-video {
+  width: 640px;
+  height: 360px;
+  background-color: #000;
+  background-image: url("https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2832");
+  background-size: cover;
+  background-position: center;
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.fake-video:hover {
+  transform: scale(1.02);
+}
+
+.fake-video i {
+  font-size: 80px;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.prompt-text {
+  margin-top: 20px;
+  font-size: 1.2em;
+  color: #ccc;
+}

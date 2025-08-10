@@ -1,44 +1,57 @@
 import express from "express";
-import fetch from "node-fetch"; // Để gọi API từ ip-api
-import fs from "fs"; // Để ghi log vào file
+import fetch from "node-fetch";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Cần thiết để lấy __dirname trong ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
+const PORT = 3000;
 
-// Route chính (root route)
-app.get("/", async (req, res) => {
-  // Lấy IP người dùng từ header 'X-Forwarded-For' hoặc connection.remoteAddress
-  const userIP = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+// --- Middlewares ---
+// Cho phép Express đọc được body dạng JSON từ các request POST
+app.use(express.json());
+// Phục vụ các file tĩnh (HTML, CSS, JS) từ thư mục 'public'
+app.use(express.static(path.join(__dirname, "public")));
 
-  console.log("IP người dùng:", userIP);
-
-  const ipApiUrl = `http://ip-api.com/json/${userIP}`;
-
+// --- API Endpoint ---
+// Tạo API để nhận và ghi log vị trí chính xác
+app.post("/api/log-precise-location", async (req, res) => {
   try {
-    const response = await fetch(ipApiUrl);
-    const data = await response.json();
+    const { latitude, longitude } = req.body;
+    const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
 
-    // Tạo log với thông tin vị trí người dùng (không hiển thị cho người dùng)
+    // Dùng tọa độ để lấy lại địa chỉ chi tiết
+    const geoResponse = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+      {
+        headers: { "User-Agent": "PreciseLogger/1.0" },
+      }
+    );
+    const geoData = await geoResponse.json();
+    const detailedAddress = geoData.display_name || "N/A";
+
     const logData = `
-      [${new Date().toISOString()}] User IP: ${userIP}
-      Location: ${data.city}, ${data.region}, ${data.country}
-      Latitude: ${data.lat}, Longitude: ${data.lon}
-      Query: ${data.query}
-    `;
+          [${new Date().toISOString()}] User IP: ${userIP}
+          Precise Coordinates: Latitude: ${latitude}, Longitude: ${longitude}
+          Detailed Address from Coords: ${detailedAddress}
+        `;
 
-    // Ghi log vào file (logs.txt)
-    fs.appendFileSync("logs.txt", logData + "\n\n", "utf8");
+    // Ghi log vào file 'precise_logs.txt' ở thư mục gốc
+    fs.appendFileSync("precise_logs.txt", logData + "\n\n", "utf8");
 
-    // Trả kết quả về cho người dùng mà không hiển thị thông tin vị trí
-    res.status(200).json({
-      message: "",
-    });
+    res.status(200).json({ message: "Location logged successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Lỗi khi lấy vị trí người dùng" });
+    console.error(error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
-// Cấu hình cổng và chạy server
-const PORT = process.env.PORT || 3000;
+// --- Khởi động Server ---
 app.listen(PORT, () => {
-  console.log(`Server đang chạy trên http://localhost:${PORT}`);
+  console.log(`Server đa năng đang chạy tại http://localhost:${PORT}`);
+  console.log("Truy cập địa chỉ trên bằng trình duyệt để xem trang web.");
 });
