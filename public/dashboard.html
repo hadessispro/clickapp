@@ -10,7 +10,6 @@
         background-color: #1e1e1e;
         color: #d4d4d4;
         margin: 0;
-        padding: 20px;
       }
       h1 {
         color: #569cd6;
@@ -65,36 +64,55 @@
     </style>
   </head>
   <body>
-    <h1>Log Viewer Dashboard</h1>
+    <div id="admin-nav-placeholder"></div>
 
-    <div class="log-selection">
-      <button class="btn-select" id="btn-show-ip" onclick="showLogs('ip')">
-        Xem Log IP (Ước tính)
-      </button>
-      <button
-        class="btn-select"
-        id="btn-show-precise"
-        onclick="showLogs('precise')"
-      >
-        Xem Log Vị trí chính xác
-      </button>
+    <div style="padding: 20px">
+      <h1>Log Viewer Dashboard</h1>
+
+      <div class="log-selection">
+        <button class="btn-select" id="btn-show-ip" onclick="showLogs('ip')">
+          Xem Log IP (Ước tính)
+        </button>
+        <button
+          class="btn-select"
+          id="btn-show-precise"
+          onclick="showLogs('precise')"
+        >
+          Xem Log Vị trí chính xác
+        </button>
+      </div>
+
+      <h2 id="current-log-title"></h2>
+      <div class="controls">
+        <a class="btn-download" id="download-link" href="">Tải file log về</a>
+        <button class="btn-clear" onclick="clearLogs()">
+          Xóa file log này
+        </button>
+      </div>
+
+      <pre id="log-content">Vui lòng chọn một loại log để xem...</pre>
     </div>
-
-    <h2 id="current-log-title"></h2>
-    <div class="controls">
-      <a class="btn-download" id="download-link" href="">Tải file log về</a>
-      <button class="btn-clear" onclick="clearLogs()">Xóa file log này</button>
-    </div>
-
-    <pre id="log-content">Vui lòng chọn một loại log để xem...</pre>
 
     <script>
-      // Biến để lưu trạng thái log đang được chọn
+      async function loadNav() {
+        try {
+          const response = await fetch("/admin-nav.html");
+          const navHtml = await response.text();
+          document.getElementById("admin-nav-placeholder").innerHTML = navHtml;
+
+          // Đánh dấu link của trang hiện tại là 'active'
+          document.getElementById("nav-dashboard").classList.add("active");
+        } catch (error) {
+          console.error("Không thể tải thanh điều hướng của admin:", error);
+        }
+      }
+    </script>
+
+    <script>
       let currentLogType = "";
 
-      // HÀM CHÍNH ĐỂ HIỂN THỊ LOG
       function showLogs(logType) {
-        currentLogType = logType; // Cập nhật trạng thái
+        currentLogType = logType;
 
         const logContentEl = document.getElementById("log-content");
         const logTitleEl = document.getElementById("current-log-title");
@@ -103,10 +121,8 @@
         logTitleEl.textContent =
           logType === "ip" ? "Log IP (Ước tính)" : "Log Vị trí chính xác";
 
-        // Cập nhật các nút điều khiển
         updateControls();
 
-        // Gọi API tương ứng với loại log
         fetch(`/admin/api/logs/${logType}`)
           .then((response) => response.text())
           .then((data) => {
@@ -119,14 +135,10 @@
           });
       }
 
-      // HÀM ĐỂ CẬP NHẬT CÁC NÚT ĐIỀU KHIỂN
       function updateControls() {
-        // Cập nhật link tải về
         document.getElementById(
           "download-link"
         ).href = `/admin/api/download/${currentLogType}`;
-
-        // Cập nhật trạng thái 'active' cho nút được chọn
         document.getElementById("btn-show-ip").classList.remove("active");
         document.getElementById("btn-show-precise").classList.remove("active");
         document
@@ -134,13 +146,11 @@
           .classList.add("active");
       }
 
-      // HÀM ĐỂ XÓA LOG
       function clearLogs() {
         if (!currentLogType) {
           alert("Vui lòng chọn một loại log để xóa.");
           return;
         }
-
         if (
           !confirm(
             `Bạn có chắc muốn xóa file log '${currentLogType}' không? Hành động này không thể hoàn tác.`
@@ -148,13 +158,11 @@
         ) {
           return;
         }
-
-        // Gọi API xóa với 'logType' trong URL
         fetch(`/admin/api/clear-logs/${currentLogType}`, { method: "POST" })
           .then((response) => response.json())
           .then((data) => {
             alert(data.message);
-            showLogs(currentLogType); // Tải lại để thấy nội dung trống
+            showLogs(currentLogType);
           })
           .catch((error) => {
             alert("Có lỗi xảy ra khi xóa log.");
@@ -162,8 +170,11 @@
           });
       }
 
-      // Tải log 'precise' mặc định khi trang được mở
-      window.onload = () => showLogs("precise");
+      // Chạy các hàm sau khi DOM đã tải xong
+      document.addEventListener("DOMContentLoaded", () => {
+        loadNav();
+        showLogs("precise");
+      });
     </script>
   </body>
 </html>
