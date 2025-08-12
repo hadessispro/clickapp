@@ -6,4 +6,3 @@ node_modules
 logs.txt
 
 # Bỏ qua các file chứa biến môi trường (nếu có)
-.env
