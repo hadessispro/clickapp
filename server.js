@@ -8,10 +8,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
-import session from "express-session"; // THÊM MỚI
+import session from "express-session";
 
 // --- Cấu hình Biến môi trường ---
-dotenv.config(); // Tải các biến từ file .env
+dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -42,28 +42,30 @@ const upload = multer({ storage: storage });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Cấu hình Session --- (THÊM MỚI)
+// --- Cấu hình Session (Bản cập nhật an toàn và linh hoạt) ---
 app.use(
   session({
     secret:
-      process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh", // Nên đặt SESSION_SECRET trong file .env
+      process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh",
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: app.get("env") === "production" }, // secure: true nếu dùng HTTPS
+    cookie: {
+      secure: process.env.NODE_ENV === "production", // Chỉ bật secure mode khi chạy thật (HTTPS)
+      httpOnly: true, // Ngăn JavaScript phía client truy cập cookie
+      sameSite: "lax", // Biện pháp chống tấn công CSRF
+    },
   })
 );
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- Middleware kiểm tra đăng nhập --- (THÊM MỚI VÀ SỬA ĐỔI)
+// --- Middleware kiểm tra đăng nhập ---
 const requireLogin = (req, res, next) => {
   if (req.session.isLoggedIn) {
-    return next(); // Đã đăng nhập, cho phép đi tiếp
+    return next();
   }
 
-  // Nếu chưa đăng nhập, kiểm tra xem có phải là API request không
   if (req.path.startsWith("/api/")) {
-    // Nếu là API, trả về lỗi JSON thay vì chuyển hướng
     return res
       .status(401)
       .json({
@@ -72,16 +74,13 @@ const requireLogin = (req, res, next) => {
       });
   }
 
-  // Nếu là trang thông thường, chuyển hướng về trang login
   res.redirect("/admin");
 };
 
 // ==========================================================
 // PHẦN 3: CÁC API CÔNG KHAI (DÀNH CHO NGƯỜI DÙNG)
-// (Không thay đổi, giữ nguyên như cũ)
 // ==========================================================
 
-// API ghi log vị trí ước tính dựa trên IP
 app.post("/api/log-ip-location", async (req, res) => {
   const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const timestamp = new Date().toLocaleString("vi-VN", {
@@ -109,7 +108,6 @@ app.post("/api/log-ip-location", async (req, res) => {
   }
 });
 
-// API ghi log vị trí chính xác
 app.post("/api/log-precise-location", async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
@@ -132,7 +130,6 @@ app.post("/api/log-precise-location", async (req, res) => {
   }
 });
 
-// API lấy video đang được kích hoạt để hiển thị trên trang chủ
 app.get("/api/active-video", async (req, res) => {
   const configPath = path.join(__dirname, "data", "config.json");
   try {
@@ -141,7 +138,6 @@ app.get("/api/active-video", async (req, res) => {
     const config = JSON.parse(fileContents);
     res.json({ url: config.activeVideo });
   } catch (error) {
-    // Nếu có lỗi (file không tồn tại), trả về một video mặc định
     res.status(200).json({ url: "" });
   }
 });
@@ -159,14 +155,13 @@ app.get("/admin", (req, res) => {
 });
 app.post("/admin/login", (req, res) => {
   if (req.body.password === ADMIN_PASSWORD) {
-    req.session.isLoggedIn = true; // Lưu trạng thái đăng nhập
+    req.session.isLoggedIn = true;
     res.redirect("/admin/dashboard");
   } else {
     res.status(401).send(`<h1>Sai mật khẩu!</h1><a href="/admin">Thử lại</a>`);
   }
 });
 
-// Áp dụng middleware requireLogin cho các route cần bảo vệ
 app.get("/admin/dashboard", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
@@ -228,8 +223,6 @@ app.post("/admin/api/clear-logs/:logType", requireLogin, async (req, res) => {
 });
 
 // --- API Admin để quản lý VIDEO (Bảo vệ bằng middleware) ---
-
-// [CREATE] API để upload video mới
 app.post(
   "/api/admin/videos/upload",
   requireLogin,
@@ -246,7 +239,6 @@ app.post(
   }
 );
 
-// [READ] API lấy danh sách video
 app.get("/api/admin/videos", requireLogin, async (req, res) => {
   const videosDirectory = path.join(__dirname, "public", "videos");
   try {
@@ -258,7 +250,6 @@ app.get("/api/admin/videos", requireLogin, async (req, res) => {
   }
 });
 
-// [UPDATE] API đặt video làm video chính
 app.post("/api/admin/videos/set-active", requireLogin, async (req, res) => {
   const { fileName } = req.body;
   if (!fileName) {
@@ -279,7 +270,6 @@ app.post("/api/admin/videos/set-active", requireLogin, async (req, res) => {
   }
 });
 
-// [DELETE] API để xóa một video
 app.post("/api/admin/videos/delete", requireLogin, async (req, res) => {
   const { fileName } = req.body;
   if (!fileName) {
@@ -287,9 +277,8 @@ app.post("/api/admin/videos/delete", requireLogin, async (req, res) => {
   }
   try {
     const filePath = path.join(__dirname, "public", "videos", fileName);
-    await fs.unlink(filePath); // Lệnh xóa file
+    await fs.unlink(filePath);
 
-    // Kiểm tra và cập nhật config nếu video bị xóa là video đang hoạt động
     const configDir = path.join(__dirname, "data");
     const configPath = path.join(configDir, "config.json");
     try {
