@@ -9,13 +9,12 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
 import session from "express-session";
-import { RedisStore } from "connect-redis"; // <-- dùng named export
+import { RedisStore } from "connect-redis"; // v7: named export
 import { createClient } from "redis";
 
 // --- Cấu hình Biến môi trường ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// nếu .env không nằm cùng file, chỉnh lại path dưới đây
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 const app = express();
@@ -24,56 +23,44 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ==========================================================
-// PHẦN 1.1: REDIS CLIENT + STORE
+// PHẦN 1.1: REDIS CLIENT + STORE (khởi tạo trong hàm start())
 // ==========================================================
-const redisClient = createClient({
-  // cho phép dùng REDIS_URL nếu deploy (vd: redis://:pass@host:6379/0)
-  url: process.env.REDIS_URL || undefined,
-});
-redisClient.on("error", (err) => console.error("Redis Client Error:", err));
-
-await redisClient.connect(); // ESM top-level await OK trong Node >= 18
-
-const redisStore = new RedisStore({
-  client: redisClient,
-  prefix: "myapp-session:",
-});
+let redisClient;
+let redisStore;
 
 // ==========================================================
-// PHẦN 2: MIDDLEWARES
+// PHẦN 2: MIDDLEWARES (đăng ký sau khi có redisStore)
 // ==========================================================
-// QUAN TRỌNG: nếu chạy sau Nginx/Cloudflare/Render/Heroku/PM2 proxy,
-// cần trust proxy để cookie secure hoạt động đúng
-app.set("trust proxy", 1);
+// (khai báo function setupMiddlewares để gọi sau khi kết nối Redis)
+const setupMiddlewares = () => {
+  // Quan trọng khi chạy sau Nginx/Cloudflare/PM2 proxy (HTTPS)
+  app.set("trust proxy", 1);
 
-app.use(express.json());
-// để đọc form <form method="POST">...
-app.use(express.urlencoded({ extended: true }));
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-// Cookie secure: chỉ bật khi thật sự chạy HTTPS trong production
-const USE_SECURE_COOKIE =
-  NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false";
+  // Cookie secure: chỉ bật khi thật sự chạy HTTPS trong production
+  const USE_SECURE_COOKIE =
+    NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false";
 
-app.use(
-  session({
-    store: redisStore,
-    secret:
-      process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: USE_SECURE_COOKIE, // HTTPS thực sự mới bật
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 ngày
-    },
-    // đề phòng reverse proxy đổi IP/agent, có thể bật rolling nếu muốn renew cookie
-    // rolling: true,
-  })
-);
+  app.use(
+    session({
+      store: redisStore, // lưu session vào Redis
+      secret:
+        process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh", // đừng dùng mặc định này ở prod
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: USE_SECURE_COOKIE, // HTTPS thực mới bật
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 ngày
+      },
+    })
+  );
 
-// phục vụ file tĩnh
-app.use(express.static(path.join(__dirname, "public")));
+  app.use(express.static(path.join(__dirname, "public")));
+};
 
 // --- Middleware kiểm tra đăng nhập ---
 const requireLogin = (req, res, next) => {
@@ -175,6 +162,7 @@ app.get("/api/active-video", async (req, res) => {
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
+
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
@@ -182,12 +170,13 @@ app.get("/admin", (req, res) => {
 // Đăng nhập
 app.post("/admin/login", (req, res) => {
   const password = (req.body?.password || "").toString();
+
   if (!ADMIN_PASSWORD) {
     console.warn("CẢNH BÁO: ADMIN_PASSWORD chưa được thiết lập trong .env!");
   }
   if (password && ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
     req.session.isLoggedIn = true;
-    // đảm bảo session được lưu trước khi redirect (tránh proxy/IO trễ)
+    // đảm bảo session được lưu trước khi redirect
     req.session.save((err) => {
       if (err) return res.status(500).send("Lỗi lưu session");
       return res.redirect("/admin/dashboard");
@@ -197,7 +186,7 @@ app.post("/admin/login", (req, res) => {
   }
 });
 
-// Đăng xuất (tiện lợi khi test)
+// Đăng xuất (tiện test)
 app.post("/admin/logout", requireLogin, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("connect.sid");
@@ -357,10 +346,37 @@ app.post("/api/admin/videos/delete", requireLogin, async (req, res) => {
 });
 
 // ==========================================================
-// PHẦN 5: KHỞI ĐỘNG SERVER
+// PHẦN 5: KHỞI ĐỘNG SERVER (sau khi kết nối Redis)
 // ==========================================================
-app.listen(PORT, () => {
-  console.log(`Server đang chạy tại http://localhost:${PORT}`);
-  console.log("NODE_ENV:", NODE_ENV, "| COOKIE_SECURE:", USE_SECURE_COOKIE);
-  console.log("ADMIN_PASSWORD loaded?", !!ADMIN_PASSWORD);
-});
+async function start() {
+  try {
+    redisClient = createClient({
+      url: process.env.REDIS_URL || undefined, // ví dụ: redis://:pass@host:6379/0
+    });
+    redisClient.on("error", (err) => console.error("Redis Client Error:", err));
+    await redisClient.connect();
+
+    redisStore = new RedisStore({
+      client: redisClient,
+      prefix: "myapp-session:",
+    });
+
+    setupMiddlewares();
+
+    app.listen(PORT, () => {
+      console.log(`Server đang chạy tại http://localhost:${PORT}`);
+      console.log(
+        "NODE_ENV:",
+        NODE_ENV,
+        "| COOKIE_SECURE:",
+        NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false"
+      );
+      console.log("ADMIN_PASSWORD loaded?", !!ADMIN_PASSWORD);
+    });
+  } catch (e) {
+    console.error("Không thể khởi động server do lỗi Redis:", e);
+    process.exit(1);
+  }
+}
+
+start();
