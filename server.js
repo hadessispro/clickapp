@@ -9,7 +9,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
 import session from "express-session";
-import ConnectRedis from "connect-redis"; // SỬA ĐỔI 1: Import với tên khác
+// --- SỬA 1: dùng named export thay vì default ---
+import { RedisStore } from "connect-redis";
 import { createClient } from "redis";
 
 // --- Cấu hình Biến môi trường ---
@@ -23,23 +24,30 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // --- Cấu hình Redis Client ---
 const redisClient = createClient();
+// Nếu cần log lỗi kết nối:
+redisClient.on("error", (err) => console.error("Redis Client Error:", err));
 redisClient.connect().catch(console.error);
 
-// --- Cấu hình Redis Store cho Session --- (SỬA ĐỔI 2: Cách khởi tạo mới)
-const RedisStore = new ConnectRedis({
+// --- Cấu hình Redis Store cho Session ---
+// --- SỬA 2: Khởi tạo trực tiếp class RedisStore ---
+const redisStore = new RedisStore({
   client: redisClient,
-  prefix: "myapp-session:",
+  prefix: "myapp-session:", // Giúp phân biệt session của các app khác nhau nếu dùng chung Redis
 });
 
 // --- Cấu hình Multer để lưu file upload ---
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const destPath = path.join(__dirname, "public", "videos");
+    // Đảm bảo thư mục tồn tại trước khi lưu
     fs.mkdir(destPath, { recursive: true })
-      .then(() => cb(null, destPath))
+      .then(() => {
+        cb(null, destPath);
+      })
       .catch((err) => cb(err));
   },
   filename: function (req, file, cb) {
+    // Tạo tên file độc nhất để tránh ghi đè
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
   },
@@ -55,16 +63,16 @@ app.use(express.urlencoded({ extended: true }));
 // --- Cấu hình Session với Redis ---
 app.use(
   session({
-    store: RedisStore, // Sử dụng biến RedisStore đã được khởi tạo đúng cách
+    store: redisStore, // Sử dụng Redis để lưu trữ
     secret:
       process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      secure: process.env.NODE_ENV === "production", // Chỉ bật secure mode khi chạy thật (HTTPS)
+      httpOnly: true, // Ngăn JavaScript phía client truy cập cookie
+      sameSite: "lax", // Biện pháp chống tấn công CSRF
+      maxAge: 1000 * 60 * 60 * 24 * 7, // Session tồn tại trong 7 ngày
     },
   })
 );
@@ -74,20 +82,25 @@ app.use(express.static(path.join(__dirname, "public")));
 // --- Middleware kiểm tra đăng nhập ---
 const requireLogin = (req, res, next) => {
   if (req.session.isLoggedIn) {
-    return next();
+    return next(); // Đã đăng nhập, cho phép đi tiếp
   }
+
+  // Nếu chưa đăng nhập và là API request, trả về lỗi JSON
   if (req.path.startsWith("/api/")) {
     return res
       .status(401)
       .json({ message: "Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang." });
   }
+
+  // Nếu là trang thông thường, chuyển hướng về trang login
   res.redirect("/admin");
 };
 
 // ==========================================================
-// PHẦN 3: CÁC API CÔNG KHAI
+// PHẦN 3: CÁC API CÔNG KHAI (DÀNH CHO NGƯỜI DÙNG)
 // ==========================================================
 
+// API ghi log vị trí ước tính dựa trên IP
 app.post("/api/log-ip-location", async (req, res) => {
   const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const timestamp = new Date().toLocaleString("vi-VN", {
@@ -116,6 +129,7 @@ app.post("/api/log-ip-location", async (req, res) => {
   }
 });
 
+// API ghi log vị trí chính xác
 app.post("/api/log-precise-location", async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
@@ -138,6 +152,7 @@ app.post("/api/log-precise-location", async (req, res) => {
   }
 });
 
+// API lấy video đang được kích hoạt để hiển thị trên trang chủ
 app.get("/api/active-video", async (req, res) => {
   const configPath = path.join(__dirname, "data", "config.json");
   try {
@@ -153,6 +168,8 @@ app.get("/api/active-video", async (req, res) => {
 // ==========================================================
 // PHẦN 4: CÁC ROUTE VÀ API CỦA ADMIN
 // ==========================================================
+
+// --- Route phục vụ các trang HTML của Admin ---
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -168,6 +185,7 @@ app.post("/admin/login", (req, res) => {
   }
 });
 
+// Áp dụng middleware requireLogin cho các route cần bảo vệ
 app.get("/admin/dashboard", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
@@ -175,7 +193,7 @@ app.get("/admin/videos", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "videos-manager.html"));
 });
 
-// API Admin để quản lý LOG
+// --- API Admin để quản lý LOG (Bảo vệ bằng middleware) ---
 app.get("/admin/api/logs/:logType", requireLogin, async (req, res) => {
   const { logType } = req.params;
   if (logType !== "ip" && logType !== "precise") {
@@ -220,17 +238,15 @@ app.post("/admin/api/clear-logs/:logType", requireLogin, async (req, res) => {
       .json({ message: `File log '${fileName}' đã được xóa thành công.` });
   } catch (err) {
     if (err.code === "ENOENT") {
-      return res
-        .status(200)
-        .json({
-          message: `File log '${fileName}' không tồn tại, không có gì để xóa.`,
-        });
+      return res.status(200).json({
+        message: `File log '${fileName}' không tồn tại, không có gì để xóa.`,
+      });
     }
     res.status(500).json({ message: "Không thể xóa file log do lỗi server." });
   }
 });
 
-// API Admin để quản lý VIDEO
+// --- API Admin để quản lý VIDEO (Bảo vệ bằng middleware) ---
 app.post(
   "/api/admin/videos/upload",
   requireLogin,
