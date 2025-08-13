@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
 import session from "express-session";
-import { RedisStore } from "connect-redis"; // v7: named export
+import * as ConnectRedisNS from "connect-redis"; // <-- tương thích v6/v7/v9
 import { createClient } from "redis";
 
 // --- Cấu hình Biến môi trường ---
@@ -28,10 +28,24 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 let redisClient;
 let redisStore;
 
+// Hàm lấy lớp RedisStore tương thích mọi version connect-redis
+function resolveRedisStoreClass() {
+  // v7/v9 có thể export { RedisStore } hoặc default là class
+  // v6: default export là function(session) => class
+  const maybeDefault = ConnectRedisNS?.default ?? ConnectRedisNS;
+  const maybeClass = ConnectRedisNS?.RedisStore ?? maybeDefault;
+
+  // Nếu là hàm nhận 1 tham số -> kiểu v6: connectRedis(session) => class
+  if (typeof maybeClass === "function" && maybeClass.length === 1) {
+    return maybeClass(session);
+  }
+  // Ngược lại xem như class trực tiếp (v7/v9)
+  return maybeClass;
+}
+
 // ==========================================================
 // PHẦN 2: MIDDLEWARES (đăng ký sau khi có redisStore)
 // ==========================================================
-// (khai báo function setupMiddlewares để gọi sau khi kết nối Redis)
 const setupMiddlewares = () => {
   // Quan trọng khi chạy sau Nginx/Cloudflare/PM2 proxy (HTTPS)
   app.set("trust proxy", 1);
@@ -47,7 +61,7 @@ const setupMiddlewares = () => {
     session({
       store: redisStore, // lưu session vào Redis
       secret:
-        process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh", // đừng dùng mặc định này ở prod
+        process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh", // KHÔNG dùng mặc định này ở prod
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -356,7 +370,8 @@ async function start() {
     redisClient.on("error", (err) => console.error("Redis Client Error:", err));
     await redisClient.connect();
 
-    redisStore = new RedisStore({
+    const RedisStoreClass = resolveRedisStoreClass();
+    redisStore = new RedisStoreClass({
       client: redisClient,
       prefix: "myapp-session:",
     });
