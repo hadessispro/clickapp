@@ -132,6 +132,7 @@
       async function loadNav() {
         try {
           const response = await fetch("/admin-nav.html");
+          if (!response.ok) throw new Error("Failed to load nav");
           const navHtml = await response.text();
           document.getElementById("admin-nav-placeholder").innerHTML = navHtml;
 
@@ -155,6 +156,11 @@
         try {
           videoListContainer.innerHTML = "<p>Đang tải danh sách video...</p>";
           const response = await fetch("/api/admin/videos");
+          if (response.status === 401) {
+            alert("Phiên đăng nhập đã hết hạn. Trang sẽ được tải lại.");
+            window.location.reload();
+            return;
+          }
           const fileNames = await response.json();
           videoListContainer.innerHTML = "";
           if (fileNames.length === 0) {
@@ -215,9 +221,17 @@
             method: "POST",
             body: formData,
           });
+
+          if (response.status === 401) {
+            const errorResult = await response.json();
+            throw new Error(errorResult.message || "Phiên đăng nhập hết hạn.");
+          }
+
           const result = await response.json();
-          if (!response.ok)
+          if (!response.ok) {
             throw new Error(result.message || "Upload thất bại.");
+          }
+
           uploadStatus.textContent = result.message;
           uploadStatus.style.color = "green";
           uploadForm.reset();
@@ -235,6 +249,11 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fileName }),
           });
+          if (response.status === 401) {
+            alert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang.");
+            window.location.reload();
+            return;
+          }
           const result = await response.json();
           alert(result.message);
           fetchAndRenderVideos();
@@ -254,6 +273,11 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fileName }),
           });
+          if (response.status === 401) {
+            alert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang.");
+            window.location.reload();
+            return;
+          }
           const result = await response.json();
           alert(result.message);
           fetchAndRenderVideos();
