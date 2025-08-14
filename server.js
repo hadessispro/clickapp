@@ -46,7 +46,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ==========================================================
-// PHẦN 3: CÁC ROUTES VÀ API
+// PHẦN 3: ROUTES VÀ API
 // ==========================================================
 
 // --- API CÔNG KHAI ---
@@ -124,50 +124,138 @@ app.get("/api/active-video", async (req, res) => {
   }
 });
 
-// --- ROUTE ADMIN BÍ MẬT ---
-const adminRouter = express.Router();
-
-// Trang hiển thị log
-adminRouter.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "dashboard.html"));
-});
-
-// Trang quản lý video
-adminRouter.get("/videos", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "videos-manager.html"));
-});
-
-// Các API của Admin
-adminRouter.get("/api/logs/:logType", async (req, res) => {
-  const { logType } = req.params;
-  if (!["ip", "precise"].includes(logType))
-    return res.status(400).send("Loại log không hợp lệ.");
-  const fileName = `${logType}_logs.txt`;
-  const logFilePath = path.join(__dirname, fileName);
-  try {
-    await fs.access(logFilePath);
-    res.type("text/plain").sendFile(logFilePath);
-  } catch {
-    res.send(`File log '${fileName}' chưa được tạo hoặc trống.`);
-  }
-});
-
-adminRouter.post("/videos/upload", upload.single("videoFile"), (req, res) => {
-  if (!req.file) {
-    return res
-      .status(400)
-      .json({ message: "Vui lòng chọn một file để upload." });
-  }
-  res.status(200).json({
-    message: `File '${req.file.filename}' đã được upload thành công.`,
-    filePath: `/videos/${req.file.filename}`,
-  });
-});
-
-// ... (Thêm các API admin khác vào đây, ví dụ: xóa video, xem log, etc.) ...
-
-// Gắn router của admin vào đường dẫn bí mật
+// --- ROUTER ADMIN BÍ MẬT ---
 if (ADMIN_SECRET_PATH) {
+  const adminRouter = express.Router();
+
+  // --- Các trang của Admin ---
+  adminRouter.get("/dashboard", (req, res) =>
+    res.sendFile(path.join(__dirname, "public", "dashboard.html"))
+  );
+  adminRouter.get("/videos", (req, res) =>
+    res.sendFile(path.join(__dirname, "public", "videos-manager.html"))
+  );
+
+  // --- Các API của Admin ---
+  adminRouter.get("/api/logs/:logType", async (req, res) => {
+    const { logType } = req.params;
+    if (!["ip", "precise"].includes(logType))
+      return res.status(400).send("Loại log không hợp lệ.");
+    const fileName = `${logType}_logs.txt`;
+    const logFilePath = path.join(__dirname, fileName);
+    try {
+      await fs.access(logFilePath);
+      res.type("text/plain").sendFile(logFilePath);
+    } catch {
+      res.send(`File log '${fileName}' chưa được tạo hoặc trống.`);
+    }
+  });
+
+  adminRouter.get("/api/download/:logType", async (req, res) => {
+    const { logType } = req.params;
+    if (!["ip", "precise"].includes(logType))
+      return res.status(400).send("Loại log không hợp lệ.");
+    const fileName = `${logType}_logs.txt`;
+    const logFilePath = path.join(__dirname, fileName);
+    try {
+      await fs.access(logFilePath);
+      res.download(logFilePath);
+    } catch {
+      res.status(404).send(`File log '${fileName}' không tồn tại để tải.`);
+    }
+  });
+
+  adminRouter.post("/api/clear-logs/:logType", async (req, res) => {
+    const { logType } = req.params;
+    if (!["ip", "precise"].includes(logType))
+      return res.status(400).json({ message: "Loại log không hợp lệ." });
+    const fileName = `${logType}_logs.txt`;
+    const logFilePath = path.join(__dirname, fileName);
+    try {
+      await fs.unlink(logFilePath);
+      res
+        .status(200)
+        .json({ message: `File log '${fileName}' đã được xóa thành công.` });
+    } catch (err) {
+      if (err.code === "ENOENT") {
+        return res
+          .status(200)
+          .json({ message: `File log '${fileName}' không tồn tại.` });
+      }
+      res
+        .status(500)
+        .json({ message: "Không thể xóa file log do lỗi server." });
+    }
+  });
+
+  adminRouter.post(
+    "/api/videos/upload",
+    upload.single("videoFile"),
+    (req, res) => {
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ message: "Vui lòng chọn một file để upload." });
+      }
+      res
+        .status(200)
+        .json({
+          message: `File '${req.file.filename}' đã được upload thành công.`,
+        });
+    }
+  );
+
+  adminRouter.get("/api/videos", async (req, res) => {
+    const videosDirectory = path.join(__dirname, "public", "videos");
+    try {
+      await fs.mkdir(videosDirectory, { recursive: true });
+      const fileNames = await fs.readdir(videosDirectory);
+      res.json(fileNames);
+    } catch {
+      res.status(500).json({ error: "Không thể lấy danh sách video" });
+    }
+  });
+
+  adminRouter.post("/api/videos/set-active", async (req, res) => {
+    const { fileName } = req.body;
+    if (!fileName)
+      return res.status(400).json({ error: "Tên file là bắt buộc" });
+    try {
+      const configDir = path.join(__dirname, "data");
+      const configPath = path.join(configDir, "config.json");
+      const newConfig = { activeVideo: `/videos/${fileName}` };
+      await fs.mkdir(configDir, { recursive: true });
+      await fs.writeFile(configPath, JSON.stringify(newConfig, null, 2));
+      res.json({ message: `Đã đặt ${fileName} làm video chính.` });
+    } catch (error) {
+      res.status(500).json({ error: "Lỗi khi đặt video chính" });
+    }
+  });
+
+  adminRouter.post("/api/videos/delete", async (req, res) => {
+    const { fileName } = req.body;
+    if (!fileName)
+      return res.status(400).json({ error: "Tên file là bắt buộc" });
+    try {
+      const filePath = path.join(__dirname, "public", "videos", fileName);
+      await fs.unlink(filePath);
+      const configDir = path.join(__dirname, "data");
+      const configPath = path.join(configDir, "config.json");
+      try {
+        const fileContents = await fs.readFile(configPath, "utf8");
+        const config = JSON.parse(fileContents);
+        if (config.activeVideo === `/videos/${fileName}`) {
+          const newConfig = { activeVideo: "" };
+          await fs.writeFile(configPath, JSON.stringify(newConfig, null, 2));
+        }
+      } catch {}
+      res.json({ message: `Đã xóa video '${fileName}' thành công.` });
+    } catch (error) {
+      res.status(500).json({ error: `Không thể xóa video '${fileName}'.` });
+    }
+  });
+
+  // Gắn router vào đường dẫn bí mật
   app.use(`/${ADMIN_SECRET_PATH}`, adminRouter);
 }
 
