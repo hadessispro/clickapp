@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Admin - Quản lý Video</title>
     <style>
+      /* CSS của bạn giữ nguyên không thay đổi */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
@@ -104,7 +105,6 @@
 
     <div class="container">
       <h1>Quản lý Video</h1>
-
       <div class="upload-section">
         <h2>Tải lên video mới</h2>
         <form id="upload-form">
@@ -119,24 +119,23 @@
         </form>
         <p id="upload-status"></p>
       </div>
-
       <div class="video-list-section">
         <h2>Danh sách Video hiện có</h2>
-        <div id="video-list-container">
-          <p>Đang tải danh sách video...</p>
-        </div>
+        <div id="video-list-container"><p>Đang tải danh sách video...</p></div>
       </div>
     </div>
 
     <script>
+      // THÊM ĐOẠN NÀY: Tự động lấy đường dẫn bí mật từ URL
+      const pathSegments = window.location.pathname.split("/");
+      const SECRET_PATH = pathSegments[1] || "";
+
       async function loadNav() {
         try {
           const response = await fetch("/admin-nav.html");
           if (!response.ok) throw new Error("Failed to load nav");
           const navHtml = await response.text();
           document.getElementById("admin-nav-placeholder").innerHTML = navHtml;
-
-          // Đánh dấu link của trang hiện tại là 'active'
           document.getElementById("nav-videos").classList.add("active");
         } catch (error) {
           console.error("Không thể tải thanh điều hướng của admin:", error);
@@ -152,15 +151,16 @@
         "video-list-container"
       );
 
+      // Tạo một hàm tiện ích để gọi API cho đúng
+      async function apiFetch(endpoint, options = {}) {
+        const url = `/${SECRET_PATH}${endpoint}`;
+        return fetch(url, options);
+      }
+
       async function fetchAndRenderVideos() {
         try {
           videoListContainer.innerHTML = "<p>Đang tải danh sách video...</p>";
-          const response = await fetch("/api/admin/videos");
-          if (response.status === 401) {
-            alert("Phiên đăng nhập đã hết hạn. Trang sẽ được tải lại.");
-            window.location.reload();
-            return;
-          }
+          const response = await apiFetch("/api/videos"); // SỬA LẠI
           const fileNames = await response.json();
           videoListContainer.innerHTML = "";
           if (fileNames.length === 0) {
@@ -168,7 +168,7 @@
               "<p>Chưa có video nào. Vui lòng upload.</p>";
             return;
           }
-          const activeVideoResponse = await fetch("/api/active-video");
+          const activeVideoResponse = await fetch("/api/active-video"); // API công khai, không cần sửa
           const activeVideoData = await activeVideoResponse.json();
           const activeVideoUrl = activeVideoData.url;
           fileNames.forEach((fileName) => {
@@ -177,24 +177,19 @@
             const isActive = `/videos/${fileName}` === activeVideoUrl;
             if (isActive) {
               videoCard.style.borderColor = "#28a745";
-              videoCard.style.boxShadow = "0 0 8px rgba(40, 167, 69, 0.5)";
             }
             videoCard.innerHTML = `
-                        <video controls src="/videos/${fileName}"></video>
-                        <p>${fileName}</p>
-                        <div class="actions">
-                            <button class="btn-success" onclick="handleSetActive('${fileName}')" ${
+                <video controls src="/videos/${fileName}"></video>
+                <p>${fileName}</p>
+                <div class="actions">
+                    <button class="btn-success" onclick="handleSetActive('${fileName}')" ${
               isActive ? "disabled" : ""
             }>
-                                ${
-                                  isActive
-                                    ? "Đang hoạt động"
-                                    : "Chọn làm video chính"
-                                }
-                            </button>
-                            <button class="btn-danger" onclick="handleDelete('${fileName}')">Xóa</button>
-                        </div>
-                    `;
+                        ${isActive ? "Đang hoạt động" : "Chọn làm video chính"}
+                    </button>
+                    <button class="btn-danger" onclick="handleDelete('${fileName}')">Xóa</button>
+                </div>
+            `;
             videoListContainer.appendChild(videoCard);
           });
         } catch (error) {
@@ -209,29 +204,20 @@
         const file = fileInput.files[0];
         if (!file) {
           uploadStatus.textContent = "Vui lòng chọn một file.";
-          uploadStatus.style.color = "red";
           return;
         }
         uploadStatus.textContent = "Đang upload...";
-        uploadStatus.style.color = "blue";
         const formData = new FormData();
         formData.append("videoFile", file);
         try {
-          const response = await fetch("/api/admin/videos/upload", {
+          const response = await apiFetch("/api/videos/upload", {
+            // SỬA LẠI
             method: "POST",
             body: formData,
           });
-
-          if (response.status === 401) {
-            const errorResult = await response.json();
-            throw new Error(errorResult.message || "Phiên đăng nhập hết hạn.");
-          }
-
           const result = await response.json();
-          if (!response.ok) {
+          if (!response.ok)
             throw new Error(result.message || "Upload thất bại.");
-          }
-
           uploadStatus.textContent = result.message;
           uploadStatus.style.color = "green";
           uploadForm.reset();
@@ -244,16 +230,12 @@
 
       async function handleSetActive(fileName) {
         try {
-          const response = await fetch("/api/admin/videos/set-active", {
+          const response = await apiFetch("/api/videos/set-active", {
+            // SỬA LẠI
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fileName }),
           });
-          if (response.status === 401) {
-            alert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang.");
-            window.location.reload();
-            return;
-          }
           const result = await response.json();
           alert(result.message);
           fetchAndRenderVideos();
@@ -268,16 +250,12 @@
         )
           return;
         try {
-          const response = await fetch("/api/admin/videos/delete", {
+          const response = await apiFetch("/api/videos/delete", {
+            // SỬA LẠI
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fileName }),
           });
-          if (response.status === 401) {
-            alert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang.");
-            window.location.reload();
-            return;
-          }
           const result = await response.json();
           alert(result.message);
           fetchAndRenderVideos();
